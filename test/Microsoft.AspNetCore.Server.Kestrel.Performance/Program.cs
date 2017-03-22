@@ -11,7 +11,17 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
     {
         public static void Main(string[] args)
         {
-            BenchmarkSwitcher.FromAssembly(typeof(Program).GetTypeInfo().Assembly).Run(args);
+            var p = new ResponseHeadersWritingBenchmark();
+            p.Type = ResponseHeadersWritingBenchmark.BenchmarkTypes.TechEmpowerPlaintext;
+            p.Setup();
+            Console.WriteLine("Setup done");
+            Console.ReadKey();
+            for (int i = 0; i < 10000000; i++)
+            {
+                p.Output().GetAwaiter().GetResult();
+            }
+
+            // BenchmarkSwitcher.FromAssembly(typeof(Program).GetTypeInfo().Assembly).Run(args);
         }
     }
 }
