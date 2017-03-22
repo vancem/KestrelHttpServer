@@ -134,7 +134,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private static unsafe void WriteMultiBuffer(this WritableBuffer buffer, byte[] source, int offset, int length)
         {
             var remaining = length;
-            var spanIndex = 0;
             var span = buffer.Buffer.Span;
             var remainingInSpan = span.Length;
 
@@ -144,7 +143,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 {
                     buffer.Ensure();
 
-                    spanIndex = 0;
                     span = buffer.Buffer.Span;
                     remainingInSpan = span.Length;
                 }
@@ -152,13 +150,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 var writable = Math.Min(remaining, remainingInSpan);
 
                 ref byte pSource = ref source[offset];
-                ref byte pDest = ref span[spanIndex];
+                ref byte pDest = ref span.DangerousGetPinnableReference();
 
                 Unsafe.CopyBlockUnaligned(ref pDest, ref pSource, (uint)writable);
 
                 remaining -= writable;
                 offset += writable;
-                spanIndex += writable;
+                span = span.Slice(writable);
                 remainingInSpan -= writable;
 
                 // REVIEW: this can be done once per memory
@@ -285,7 +283,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private unsafe static void WriteAsciiMultiWrite(this WritableBuffer buffer, string data)
         {
             var remaining = data.Length;
-            var spanIndex = 0;
             var span = buffer.Buffer.Span;
             var remainingInSpan = span.Length;
 
@@ -299,14 +296,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     {
                         buffer.Ensure();
 
-                        spanIndex = 0;
                         span = buffer.Buffer.Span;
                         remainingInSpan = span.Length;
                     }
 
                     var writable = Math.Min(remaining, remainingInSpan);
 
-                    fixed (byte* output = &span[spanIndex])
+                    fixed (byte* output = &span.DangerousGetPinnableReference())
                     {
                         EncodeAsciiCharsToBytes(inputSlice, output, writable);
                     }
@@ -314,7 +310,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     inputSlice += writable;
                     remaining -= writable;
                     remainingInSpan -= writable;
-                    spanIndex += writable;
+                    span = span.Slice(writable);
 
                     buffer.Advance(writable);
                 }
