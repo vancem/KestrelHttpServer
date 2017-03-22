@@ -134,26 +134,34 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private static unsafe void WriteMultiBuffer(this WritableBuffer buffer, byte[] source, int offset, int length)
         {
             var remaining = length;
+            var spanIndex = 0;
+            var span = buffer.Buffer.Span;
+            var remainingInSpan = span.Length;
 
             while (remaining > 0)
             {
-                var writable = Math.Min(remaining, buffer.Buffer.Length);
-
-                buffer.Ensure(writable);
-
-                if (writable == 0)
+                if (remainingInSpan == 0)
                 {
-                    continue;
+                    buffer.Ensure();
+
+                    spanIndex = 0;
+                    span = buffer.Buffer.Span;
+                    remainingInSpan = span.Length;
                 }
 
+                var writable = Math.Min(remaining, remainingInSpan);
+
                 ref byte pSource = ref source[offset];
-                ref byte pDest = ref buffer.Buffer.Span.DangerousGetPinnableReference();
+                ref byte pDest = ref span[spanIndex];
 
                 Unsafe.CopyBlockUnaligned(ref pDest, ref pSource, (uint)writable);
 
                 remaining -= writable;
                 offset += writable;
+                spanIndex += writable;
+                remainingInSpan -= writable;
 
+                // REVIEW: this can be done once per memory
                 buffer.Advance(writable);
             }
         }
@@ -200,14 +208,14 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             const byte AsciiDigitStart = (byte)'0';
 
             var span = buffer.Buffer.Span;
-            var bytesLeftInBlock = span.Length;
+            var length = span.Length;
 
-            if (bytesLeftInBlock == 0)
+            if (length == 0)
             {
                 buffer.Ensure();
 
                 span = buffer.Buffer.Span;
-                bytesLeftInBlock = span.Length;
+                length = span.Length;
             }
 
             // Fast path, try copying to the available memory directly
@@ -215,12 +223,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             fixed (byte* output = &span.DangerousGetPinnableReference())
             {
                 var start = output;
-                if (number < 10 && bytesLeftInBlock >= 1)
+                if (number < 10 && length >= 1)
                 {
                     *(start) = (byte)(((uint)number) + AsciiDigitStart);
                     buffer.Advance(1);
                 }
-                else if (number < 100 && bytesLeftInBlock >= 2)
+                else if (number < 100 && length >= 2)
                 {
                     var val = (uint)number;
                     var tens = (byte)((val * 205u) >> 11); // div10, valid to 1028
@@ -229,7 +237,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     *(start + 1) = (byte)(val - (tens * 10) + AsciiDigitStart);
                     buffer.Advance(2);
                 }
-                else if (number < 1000 && bytesLeftInBlock >= 3)
+                else if (number < 1000 && length >= 3)
                 {
                     var val = (uint)number;
                     var digit0 = (byte)((val * 41u) >> 12); // div100, valid to 1098
@@ -277,6 +285,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private unsafe static void WriteAsciiMultiWrite(this WritableBuffer buffer, string data)
         {
             var remaining = data.Length;
+            var spanIndex = 0;
+            var span = buffer.Buffer.Span;
+            var remainingInSpan = span.Length;
 
             fixed (char* input = data)
             {
@@ -284,22 +295,26 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                 while (remaining > 0)
                 {
-                    var writable = Math.Min(remaining, buffer.Buffer.Length);
-
-                    buffer.Ensure(writable);
-
-                    if (writable == 0)
+                    if (remainingInSpan == 0)
                     {
-                        continue;
+                        buffer.Ensure();
+
+                        spanIndex = 0;
+                        span = buffer.Buffer.Span;
+                        remainingInSpan = span.Length;
                     }
 
-                    fixed (byte* output = &buffer.Buffer.Span.DangerousGetPinnableReference())
+                    var writable = Math.Min(remaining, remainingInSpan);
+
+                    fixed (byte* output = &span[spanIndex])
                     {
                         EncodeAsciiCharsToBytes(inputSlice, output, writable);
                     }
 
                     inputSlice += writable;
                     remaining -= writable;
+                    remainingInSpan -= writable;
+                    spanIndex += writable;
 
                     buffer.Advance(writable);
                 }
