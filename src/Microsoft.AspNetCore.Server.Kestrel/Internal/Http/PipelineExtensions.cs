@@ -106,56 +106,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         public unsafe static void WriteFast(this WritableBuffer buffer, byte[] source, int offset, int length)
         {
-            var dest = buffer.Buffer.Span;
-            var destLength = dest.Length;
-
-            if (destLength == 0)
-            {
-                buffer.Ensure();
-
-                // Get the new span and length
-                dest = buffer.Buffer.Span;
-                destLength = dest.Length;
-            }
-
-            var sourceLength = length;
-            if (sourceLength <= destLength)
-            {
-                ref byte pSource = ref source[offset];
-                ref byte pDest = ref dest.DangerousGetPinnableReference();
-                Unsafe.CopyBlockUnaligned(ref pDest, ref pSource, (uint)sourceLength);
-                buffer.Advance(sourceLength);
-                return;
-            }
-
-            buffer.WriteMultiBuffer(source, offset, length);
-        }
-
-        private static unsafe void WriteMultiBuffer(this WritableBuffer buffer, byte[] source, int offset, int length)
-        {
-            var remaining = length;
-
-            while (remaining > 0)
-            {
-                var writable = Math.Min(remaining, buffer.Buffer.Length);
-
-                buffer.Ensure(writable);
-
-                if (writable == 0)
-                {
-                    continue;
-                }
-
-                ref byte pSource = ref source[offset];
-                ref byte pDest = ref buffer.Buffer.Span.DangerousGetPinnableReference();
-
-                Unsafe.CopyBlockUnaligned(ref pDest, ref pSource, (uint)writable);
-
-                remaining -= writable;
-                offset += writable;
-
-                buffer.Advance(writable);
-            }
+            buffer.Write(new ReadOnlySpan<byte>(source, offset, length));
         }
 
         public unsafe static void WriteAscii(this WritableBuffer buffer, string data)
