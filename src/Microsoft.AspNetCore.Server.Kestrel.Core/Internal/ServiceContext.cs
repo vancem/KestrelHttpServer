@@ -15,7 +15,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public Func<Frame, IHttpParser> HttpParserFactory { get; set; }
 
+        public ISystemClock SystemClock { get; set; }
+
         public DateHeaderValueManager DateHeaderValueManager { get; set; }
+
+        public FrameConnectionManager ConnectionManager { get; set; }
 
         public KestrelServerOptions ServerOptions { get; set; }
     }
