@@ -111,27 +111,98 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
                 var hasListenOptions = listenOptions.Any();
                 var hasServerAddresses = _serverAddresses.Addresses.Any();
 
-                if (hasListenOptions && hasServerAddresses)
+                if (_serverAddresses.PreferHostingUrls && hasServerAddresses)
                 {
-                    var joined = string.Join(", ", _serverAddresses.Addresses);
-                    _logger.LogWarning($"Overriding address(es) '{joined}'. Binding to endpoints defined in UseKestrel() instead.");
+                    if (hasListenOptions)
+                    {
+                        var joined = string.Join(", ", _serverAddresses.Addresses);
+                        _logger.LogWarning($"Overriding endpoints defined in UseKestrel() since {nameof(IServerAddressesFeature.PreferHostingUrls)} ist set to true. Binding to address(es) '{joined}' instead.");
 
+                        listenOptions.Clear();
+                    }
+
+                    // If no endpoints are configured directly using KestrelServerOptions, use those configured via the IServerAddressesFeature.
+                    var copiedAddresses = _serverAddresses.Addresses.ToArray();
                     _serverAddresses.Addresses.Clear();
+
+                    foreach (var address in copiedAddresses)
+                    {
+                        var parsedAddress = ServerAddress.FromUrl(address);
+
+                        if (parsedAddress.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"HTTPS endpoints can only be configured using {nameof(KestrelServerOptions)}.{nameof(KestrelServerOptions.Listen)}().");
+                        }
+
+                        if (!string.IsNullOrEmpty(parsedAddress.PathBase))
+                        {
+                            throw new InvalidOperationException($"A path base can only be configured using {nameof(IApplicationBuilder)}.UsePathBase().");
+                        }
+
+                        if (!string.IsNullOrEmpty(parsedAddress.PathBase))
+                        {
+                            _logger.LogWarning($"Path base in address {address} is not supported and will be ignored. To specify a path base, use {nameof(IApplicationBuilder)}.UsePathBase().");
+                        }
+
+                        if (parsedAddress.IsUnixPipe)
+                        {
+                            listenOptions.Add(new ListenOptions(parsedAddress.UnixPipePath)
+                            {
+                                Scheme = parsedAddress.Scheme,
+                            });
+                        }
+                        else
+                        {
+                            if (string.Equals(parsedAddress.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+                            {
+                                // "localhost" for both IPv4 and IPv6 can't be represented as an IPEndPoint.
+                                StartLocalhost(parsedAddress, serviceContext, application);
+
+                                // If StartLocalhost doesn't throw, there is at least one listener.
+                                // The port cannot change for "localhost".
+                                _serverAddresses.Addresses.Add(parsedAddress.ToString());
+                            }
+                            else
+                            {
+                                // These endPoints will be added later to _serverAddresses.Addresses
+                                listenOptions.Add(new ListenOptions(CreateIPEndPoint(parsedAddress))
+                                {
+                                    Scheme = parsedAddress.Scheme,
+                                });
+                            }
+                        }
+                    }
                 }
-                else if (!hasListenOptions && !hasServerAddresses)
+                else if (hasListenOptions)
                 {
-                    _logger.LogDebug($"No listening endpoints were configured. Binding to {Constants.DefaultServerAddress} by default.");
+                    if (hasServerAddresses)
+                    {
+                        var joined = string.Join(", ", _serverAddresses.Addresses);
+                        _logger.LogWarning($"Overriding address(es) '{joined}'. Binding to endpoints defined in UseKestrel() instead.");
 
-                    // "localhost" for both IPv4 and IPv6 can't be represented as an IPEndPoint.
-                    StartLocalhost(ServerAddress.FromUrl(Constants.DefaultServerAddress), serviceContext, application);
+                        _serverAddresses.Addresses.Clear();
+                    }
 
-                    // If StartLocalhost doesn't throw, there is at least one listener.
-                    // The port cannot change for "localhost".
-                    _serverAddresses.Addresses.Add(Constants.DefaultServerAddress);
+                    foreach (var endPoint in listenOptions)
+                    {
+                        var connectionHandler = new ConnectionHandler<TContext>(endPoint, serviceContext, application);
+                        var transport = _transportFactory.Create(endPoint, connectionHandler);
+                        _transports.Add(transport);
 
-                    return;
+                        try
+                        {
+                            transport.BindAsync().Wait();
+                        }
+                        catch (AggregateException ex) when (ex.InnerException is AddressInUseException)
+                        {
+                            throw new IOException($"Failed to bind to address {endPoint}: address already in use.", ex);
+                        }
+
+                        // If requested port was "0", replace with assigned dynamic port.
+                        _serverAddresses.Addresses.Add(endPoint.ToString());
+                    }
                 }
-                else if (!hasListenOptions)
+                else if (hasServerAddresses)
                 {
                     // If no endpoints are configured directly using KestrelServerOptions, use those configured via the IServerAddressesFeature.
                     var copiedAddresses = _serverAddresses.Addresses.ToArray();
@@ -185,24 +256,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
                         }
                     }
                 }
-
-                foreach (var endPoint in listenOptions)
+                else
                 {
-                    var connectionHandler = new ConnectionHandler<TContext>(endPoint, serviceContext, application);
-                    var transport = _transportFactory.Create(endPoint, connectionHandler);
-                    _transports.Add(transport);
+                    _logger.LogDebug($"No listening endpoints were configured. Binding to {Constants.DefaultServerAddress} by default.");
 
-                    try
-                    {
-                        transport.BindAsync().Wait();
-                    }
-                    catch (AggregateException ex) when (ex.InnerException is AddressInUseException)
-                    {
-                        throw new IOException($"Failed to bind to address {endPoint}: address already in use.", ex);
-                    }
+                    // "localhost" for both IPv4 and IPv6 can't be represented as an IPEndPoint.
+                    StartLocalhost(ServerAddress.FromUrl(Constants.DefaultServerAddress), serviceContext, application);
 
-                    // If requested port was "0", replace with assigned dynamic port.
-                    _serverAddresses.Addresses.Add(endPoint.ToString());
+                    // If StartLocalhost doesn't throw, there is at least one listener.
+                    // The port cannot change for "localhost".
+                    _serverAddresses.Addresses.Add(Constants.DefaultServerAddress);
                 }
             }
             catch (Exception ex)
