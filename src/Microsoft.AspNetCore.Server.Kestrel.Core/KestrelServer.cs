@@ -116,7 +116,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
                     if (hasListenOptions)
                     {
                         var joined = string.Join(", ", _serverAddresses.Addresses);
-                        _logger.LogWarning($"Overriding endpoints defined in UseKestrel() since {nameof(IServerAddressesFeature.PreferHostingUrls)} ist set to true. Binding to address(es) '{joined}' instead.");
+                        _logger.LogWarning($"Overriding endpoints defined in UseKestrel() since {nameof(IServerAddressesFeature.PreferHostingUrls)} is set to true. Binding to address(es) '{joined}' instead.");
 
                         listenOptions.Clear();
                     }
