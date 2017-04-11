@@ -14,21 +14,30 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal.Networkin
         {
         }
 
+        /// <summary>
+        /// Called when this SafeHandle is Disposed (Request Death)  
+        /// </summary>
         protected override bool ReleaseHandle()
         {
             DestroyMemory(handle);
             handle = IntPtr.Zero;
+            _pin.Free();        // This is a noop if _pin was not allocated.  
             return true;
         }
 
+        /// <summary>
+        /// This does not mean pin in the .NET Sense, It just means it is references (it can't be collected).  
+        /// </summary>
         public virtual void Pin()
         {
-            _pin = GCHandle.Alloc(this, GCHandleType.Normal);
+            if (!_pin.IsAllocated)
+                _pin = GCHandle.Alloc(null, GCHandleType.Normal);
+            _pin.Target = this;
         }
 
         public virtual void Unpin()
         {
-            _pin.Free();
+            _pin.Target = null;
         }
     }
 }

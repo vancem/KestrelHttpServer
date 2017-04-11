@@ -62,8 +62,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal.Networkin
         {
             try
             {
-                // add GCHandle to keeps this SafeHandle alive while request processing
-                _pins.Add(GCHandle.Alloc(this, GCHandleType.Normal));
+                Pin();  // Keep the request from being GC'ed while in progress. 
 
                 var nBuffers = 0;
                 if (buffer.IsSingleSpan)
@@ -157,8 +156,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal.Networkin
         {
             try
             {
-                // add GCHandle to keeps this SafeHandle alive while request processing
-                _pins.Add(GCHandle.Alloc(this, GCHandleType.Normal));
+                Pin();  // Keep the request from being GC'ed while in progress. 
 
                 var pBuffers = (LibuvFunctions.uv_buf_t*)_bufs;
                 var nBuffers = bufs.Count;
@@ -215,6 +213,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal.Networkin
                 pinList[i].Free();
             }
             pinList.Clear();
+            Unpin();        // Allow this object to be collected if unreferenced.  
 
             var handleList = _handles;
             count = handleList.Count;
